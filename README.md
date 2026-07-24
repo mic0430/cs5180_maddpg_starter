@@ -1,5 +1,13 @@
 # CS5180 MADDPG Cooperative Transport
 
+## Setup
+
+Follow the complete installation and verification instructions:
+
+[Teammate Setup Guide](docs/SETUP_GUIDE.md)
+
+Each team member must create their own `.venv`. The virtual environment is intentionally excluded from Git.
+
 Starter repository for:
 
 **Learning Decentralized Force-Feedback Coordination for Multi-Robot Cooperative Transport with MADDPG**
