@@ -1,0 +1,27 @@
+﻿algorithm: maddpg
+
+project:
+  seed: 42
+  device: auto
+
+environment:
+  num_agents: 3
+  max_cycles: 8
+  local_ratio: 0.5
+
+training:
+  episodes: 6
+  batch_size: 8
+  replay_capacity: 500
+  learning_starts: 8
+  update_every: 1
+  gamma: 0.95
+  tau: 0.01
+  actor_lr: 0.001
+  critic_lr: 0.001
+  hidden_sizes: [32, 32]
+  exploration_noise_std: 0.2
+
+logging:
+  log_dir: runs/smoke_maddpg
+  checkpoint_path: checkpoints/smoke_maddpg.pt
