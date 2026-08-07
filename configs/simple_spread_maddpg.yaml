@@ -1,0 +1,34 @@
+algorithm: maddpg
+
+project:
+  seed: 42
+  device: auto
+
+environment:
+  num_agents: 3
+  max_cycles: 25
+  local_ratio: 0.5
+
+training:
+  episodes: 2000
+  batch_size: 256
+  replay_capacity: 200000
+  learning_starts: 1024
+  update_every: 1
+
+  gamma: 0.95
+  tau: 0.01
+  actor_lr: 0.001
+  critic_lr: 0.001
+  hidden_sizes: [64, 64]
+
+  exploration_noise_std: 0.20
+  exploration_noise_final: 0.05
+  exploration_decay_episodes: 1600
+
+  evaluation_interval: 100
+  evaluation_episodes: 10
+
+logging:
+  log_dir: runs/simple_spread_maddpg
+  checkpoint_path: checkpoints/simple_spread_maddpg.pt

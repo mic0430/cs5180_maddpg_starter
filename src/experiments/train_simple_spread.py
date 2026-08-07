@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import argparse
@@ -40,7 +39,13 @@ class TrainingConfig:
     actor_lr: float = 1e-3
     critic_lr: float = 1e-3
     hidden_sizes: tuple[int, ...] = (64, 64)
+
     exploration_noise_std: float = 0.1
+    exploration_noise_final: float = 0.1
+    exploration_decay_episodes: int = 0
+
+    evaluation_interval: int = 0
+    evaluation_episodes: int = 0
 
     log_dir: Path | str = Path("runs/simple_spread")
     checkpoint_path: Path | str | None = None
@@ -83,9 +88,56 @@ class TrainingConfig:
                 "learning_starts must be non-negative."
             )
 
+        for name in (
+            "exploration_decay_episodes",
+            "evaluation_interval",
+            "evaluation_episodes",
+        ):
+            value = getattr(self, name)
+
+            if value < 0:
+                raise ValueError(
+                    f"{name} must be non-negative."
+                )
+
+        if self.exploration_noise_std < 0.0:
+            raise ValueError(
+                "exploration_noise_std must be "
+                "non-negative."
+            )
+
+        if self.exploration_noise_final < 0.0:
+            raise ValueError(
+                "exploration_noise_final must be "
+                "non-negative."
+            )
+
+        if (
+            self.exploration_noise_final
+            > self.exploration_noise_std
+        ):
+            raise ValueError(
+                "exploration_noise_final must not exceed "
+                "exploration_noise_std."
+            )
+
+        evaluation_is_partially_enabled = (
+            self.evaluation_interval == 0
+        ) != (
+            self.evaluation_episodes == 0
+        )
+
+        if evaluation_is_partially_enabled:
+            raise ValueError(
+                "evaluation_interval and "
+                "evaluation_episodes must either both "
+                "be zero or both be positive."
+            )
+
         if self.replay_capacity < self.batch_size:
             raise ValueError(
-                "replay_capacity must be at least batch_size."
+                "replay_capacity must be at least "
+                "batch_size."
             )
 
         if not 0.0 <= self.local_ratio <= 1.0:
@@ -132,6 +184,11 @@ class TrainingConfig:
         training = data.get("training", {})
         logging = data.get("logging", {})
 
+        initial_noise = training.get(
+            "exploration_noise_std",
+            0.1,
+        )
+
         return cls(
             algorithm=data.get(
                 "algorithm",
@@ -171,8 +228,14 @@ class TrainingConfig:
                 "update_every",
                 1,
             ),
-            gamma=training.get("gamma", 0.95),
-            tau=training.get("tau", 0.01),
+            gamma=training.get(
+                "gamma",
+                0.95,
+            ),
+            tau=training.get(
+                "tau",
+                0.01,
+            ),
             actor_lr=training.get(
                 "actor_lr",
                 1e-3,
@@ -187,9 +250,22 @@ class TrainingConfig:
                     [64, 64],
                 )
             ),
-            exploration_noise_std=training.get(
-                "exploration_noise_std",
-                0.1,
+            exploration_noise_std=initial_noise,
+            exploration_noise_final=training.get(
+                "exploration_noise_final",
+                initial_noise,
+            ),
+            exploration_decay_episodes=training.get(
+                "exploration_decay_episodes",
+                0,
+            ),
+            evaluation_interval=training.get(
+                "evaluation_interval",
+                0,
+            ),
+            evaluation_episodes=training.get(
+                "evaluation_episodes",
+                0,
             ),
             log_dir=logging.get(
                 "log_dir",
@@ -210,11 +286,47 @@ class TrainingResult:
     environment_steps: int
     update_count: int
     mean_episode_return: float
+    mean_evaluation_return: float | None
+    evaluation_runs: int
+    training_episode_returns: tuple[float, ...]
+    evaluation_episode_indices: tuple[int, ...]
+    evaluation_returns: tuple[float, ...]
     log_dir: Path
     checkpoint_path: Path | None
 
 
 Learner = MADDPG | IndependentDDPG
+
+
+def exploration_noise_for_episode(
+    config: TrainingConfig,
+    episode: int,
+) -> float:
+    """Return linearly decayed exploration noise."""
+
+    if episode < 0:
+        raise ValueError(
+            "episode must be non-negative."
+        )
+
+    if config.exploration_decay_episodes == 0:
+        return config.exploration_noise_std
+
+    progress = min(
+        episode / config.exploration_decay_episodes,
+        1.0,
+    )
+
+    noise_std = (
+        config.exploration_noise_std
+        + progress
+        * (
+            config.exploration_noise_final
+            - config.exploration_noise_std
+        )
+    )
+
+    return float(noise_std)
 
 
 def build_learner(
@@ -246,6 +358,80 @@ def build_learner(
     raise ValueError(
         f"Unsupported algorithm: {config.algorithm}"
     )
+
+
+def evaluate_simple_spread(
+    learner: Learner,
+    config: TrainingConfig,
+) -> float:
+    """Evaluate the current policy without exploration noise."""
+
+    if config.evaluation_episodes < 1:
+        raise ValueError(
+            "evaluation_episodes must be positive "
+            "when evaluation is performed."
+        )
+
+    evaluation_env = SimpleSpreadWrapper(
+        num_agents=config.num_agents,
+        max_cycles=config.max_cycles,
+        local_ratio=config.local_ratio,
+        use_2d_actions=True,
+        render_mode=None,
+    )
+
+    evaluation_returns: list[float] = []
+    evaluation_seed_base = config.seed + 100_000
+
+    try:
+        for evaluation_episode in range(
+            config.evaluation_episodes
+        ):
+            observations, _ = evaluation_env.reset(
+                seed=(
+                    evaluation_seed_base
+                    + evaluation_episode
+                )
+            )
+
+            agent_returns = np.zeros(
+                evaluation_env.num_agents,
+                dtype=np.float32,
+            )
+
+            for _ in range(config.max_cycles):
+                actions = learner.select_actions(
+                    observations,
+                    explore=False,
+                )
+
+                (
+                    observations,
+                    rewards,
+                    terminations,
+                    truncations,
+                    _,
+                ) = evaluation_env.step(actions)
+
+                agent_returns += rewards
+
+                done = np.logical_or(
+                    terminations,
+                    truncations,
+                )
+
+                if bool(np.all(done)):
+                    break
+
+            evaluation_returns.append(
+                float(np.mean(agent_returns))
+            )
+
+        return float(
+            np.mean(evaluation_returns)
+        )
+    finally:
+        evaluation_env.close()
 
 
 def train_simple_spread(
@@ -291,14 +477,28 @@ def train_simple_spread(
     global_step = 0
     update_count = 0
     episode_returns: list[float] = []
+    evaluation_episode_indices: list[int] = []
+    evaluation_returns: list[float] = []
 
     minimum_replay_size = max(
         config.batch_size,
         config.learning_starts,
     )
 
+    evaluation_enabled = (
+        config.evaluation_interval > 0
+        and config.evaluation_episodes > 0
+    )
+
     try:
         for episode in range(config.episodes):
+            current_noise_std = (
+                exploration_noise_for_episode(
+                    config,
+                    episode,
+                )
+            )
+
             observations, _ = env.reset(
                 seed=config.seed + episode
             )
@@ -324,6 +524,7 @@ def train_simple_spread(
                     actions = learner.select_actions(
                         observations,
                         explore=True,
+                        noise_std=current_noise_std,
                     )
 
                 (
@@ -413,6 +614,41 @@ def train_simple_spread(
                 update_count,
                 episode,
             )
+            writer.add_scalar(
+                "train/exploration_noise_std",
+                current_noise_std,
+                episode,
+            )
+
+            should_evaluate = (
+                evaluation_enabled
+                and (
+                    episode + 1
+                )
+                % config.evaluation_interval
+                == 0
+            )
+
+            if should_evaluate:
+                evaluation_return = (
+                    evaluate_simple_spread(
+                        learner=learner,
+                        config=config,
+                    )
+                )
+
+                evaluation_episode_indices.append(
+                    episode + 1
+                )
+                evaluation_returns.append(
+                    evaluation_return
+                )
+
+                writer.add_scalar(
+                    "evaluation/episode_return_mean_agent",
+                    evaluation_return,
+                    episode + 1,
+                )
 
         checkpoint_path: Path | None = None
 
@@ -431,6 +667,25 @@ def train_simple_spread(
             update_count=update_count,
             mean_episode_return=float(
                 np.mean(episode_returns)
+            ),
+            mean_evaluation_return=(
+                float(
+                    np.mean(evaluation_returns)
+                )
+                if evaluation_returns
+                else None
+            ),
+            evaluation_runs=len(
+                evaluation_returns
+            ),
+            training_episode_returns=tuple(
+                episode_returns
+            ),
+            evaluation_episode_indices=tuple(
+                evaluation_episode_indices
+            ),
+            evaluation_returns=tuple(
+                evaluation_returns
             ),
             log_dir=config.log_dir,
             checkpoint_path=checkpoint_path,
@@ -455,6 +710,7 @@ def main() -> None:
     )
 
     arguments = parser.parse_args()
+
     config = TrainingConfig.from_yaml(
         arguments.config
     )
@@ -475,6 +731,16 @@ def main() -> None:
         f"Mean episode return: "
         f"{result.mean_episode_return:.4f}"
     )
+    if result.mean_evaluation_return is not None:
+        print(
+            f"Evaluation runs: "
+            f"{result.evaluation_runs}"
+        )
+        print(
+            f"Mean evaluation return: "
+            f"{result.mean_evaluation_return:.4f}"
+        )
+
     print(f"TensorBoard log: {result.log_dir}")
 
     if result.checkpoint_path is not None:
