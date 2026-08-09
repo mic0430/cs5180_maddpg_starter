@@ -32,7 +32,9 @@ def write_csv(
         )
 
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(
+            rows
+        )
 
 
 def create_fake_algorithm_results(
@@ -51,6 +53,10 @@ def create_fake_algorithm_results(
             "seed",
             "mean_training_return",
             "mean_evaluation_return",
+            "final_evaluation_episode",
+            "final_evaluation_return",
+            "runtime_seconds",
+            "runtime_minutes",
         ],
         [
             {
@@ -58,16 +64,32 @@ def create_fake_algorithm_results(
                 "seed": 1,
                 "mean_training_return": -5.0,
                 "mean_evaluation_return": (
-                    -4.0 + evaluation_offset
+                    -4.0
+                    + evaluation_offset
                 ),
+                "final_evaluation_episode": 2,
+                "final_evaluation_return": (
+                    -2.0
+                    + evaluation_offset
+                ),
+                "runtime_seconds": 60.0,
+                "runtime_minutes": 1.0,
             },
             {
                 "algorithm": algorithm,
                 "seed": 2,
                 "mean_training_return": -3.0,
                 "mean_evaluation_return": (
-                    -2.0 + evaluation_offset
+                    -2.0
+                    + evaluation_offset
                 ),
+                "final_evaluation_episode": 2,
+                "final_evaluation_return": (
+                    -1.0
+                    + evaluation_offset
+                ),
+                "runtime_seconds": 120.0,
+                "runtime_minutes": 2.0,
             },
         ],
     )
@@ -87,13 +109,17 @@ def create_fake_algorithm_results(
                     "algorithm": algorithm,
                     "seed": seed,
                     "episode": 1,
-                    "training_return": -5.0 + seed,
+                    "training_return": (
+                        -5.0 + seed
+                    ),
                 },
                 {
                     "algorithm": algorithm,
                     "seed": seed,
                     "episode": 2,
-                    "training_return": -4.0 + seed,
+                    "training_return": (
+                        -4.0 + seed
+                    ),
                 },
             ]
         )
@@ -124,7 +150,8 @@ def create_fake_algorithm_results(
         )
 
     write_csv(
-        algorithm_dir / "training_curves.csv",
+        algorithm_dir
+        / "training_curves.csv",
         [
             "algorithm",
             "seed",
@@ -135,7 +162,8 @@ def create_fake_algorithm_results(
     )
 
     write_csv(
-        algorithm_dir / "evaluation_curves.csv",
+        algorithm_dir
+        / "evaluation_curves.csv",
         [
             "algorithm",
             "seed",
@@ -182,11 +210,16 @@ def test_analysis_writes_summaries_and_plots(
         )
     )
 
-    assert len(output_paths) == 5
+    assert len(
+        output_paths
+    ) == 10
 
     for output_path in output_paths:
         assert output_path.exists()
-        assert output_path.stat().st_size > 0
+        assert (
+            output_path.stat().st_size
+            > 0
+        )
 
     comparison_path = (
         output_dir
@@ -197,25 +230,158 @@ def test_analysis_writes_summaries_and_plots(
         newline="",
         encoding="utf-8",
     ) as file:
-        rows = list(
+        comparison_rows = list(
             csv.DictReader(file)
         )
 
-    assert len(rows) == 2
-
     rows_by_algorithm = {
         row["algorithm"]: row
-        for row in rows
+        for row in comparison_rows
     }
 
     assert float(
         rows_by_algorithm[
             "maddpg"
         ]["mean_evaluation_return"]
-    ) == pytest.approx(-3.0)
+    ) == pytest.approx(
+        -3.0
+    )
 
     assert float(
         rows_by_algorithm[
             "independent_ddpg"
         ]["mean_evaluation_return"]
-    ) == pytest.approx(-4.0)
+    ) == pytest.approx(
+        -4.0
+    )
+
+    final_summary_path = (
+        output_dir
+        / "final_checkpoint_summary.csv"
+    )
+
+    with final_summary_path.open(
+        newline="",
+        encoding="utf-8",
+    ) as file:
+        final_rows = list(
+            csv.DictReader(file)
+        )
+
+    final_by_algorithm = {
+        row["algorithm"]: row
+        for row in final_rows
+    }
+
+    assert float(
+        final_by_algorithm[
+            "maddpg"
+        ]["final_mean_return"]
+    ) == pytest.approx(
+        -1.5
+    )
+
+    assert float(
+        final_by_algorithm[
+            "independent_ddpg"
+        ]["final_mean_return"]
+    ) == pytest.approx(
+        -2.5
+    )
+
+    assert float(
+        final_by_algorithm[
+            "maddpg"
+        ]["mean_runtime_seconds"]
+    ) == pytest.approx(
+        90.0
+    )
+
+    assert float(
+        final_by_algorithm[
+            "maddpg"
+        ]["total_runtime_seconds"]
+    ) == pytest.approx(
+        180.0
+    )
+
+    paired_path = (
+        output_dir
+        / "paired_final_comparison.csv"
+    )
+
+    with paired_path.open(
+        newline="",
+        encoding="utf-8",
+    ) as file:
+        paired_rows = list(
+            csv.DictReader(file)
+        )
+
+    assert len(
+        paired_rows
+    ) == 2
+
+    assert all(
+        row["winner"] == "maddpg"
+        for row in paired_rows
+    )
+
+    assert all(
+        float(
+            row[
+                "maddpg_minus_independent_ddpg"
+            ]
+        )
+        == pytest.approx(1.0)
+        for row in paired_rows
+    )
+
+    paired_summary_path = (
+        output_dir
+        / "paired_final_summary.csv"
+    )
+
+    with paired_summary_path.open(
+        newline="",
+        encoding="utf-8",
+    ) as file:
+        paired_summary_rows = list(
+            csv.DictReader(file)
+        )
+
+    assert len(
+        paired_summary_rows
+    ) == 1
+
+    paired_summary = (
+        paired_summary_rows[0]
+    )
+
+    assert (
+        paired_summary["maddpg_wins"]
+        == "2"
+    )
+
+    assert (
+        paired_summary[
+            "independent_ddpg_wins"
+        ]
+        == "0"
+    )
+
+    assert float(
+        paired_summary[
+            "mean_paired_difference"
+        ]
+    ) == pytest.approx(
+        1.0
+    )
+
+    assert float(
+        paired_summary[
+            "total_experiment_seed_runtime_seconds"
+        ]
+    ) == pytest.approx(
+        360.0
+    )

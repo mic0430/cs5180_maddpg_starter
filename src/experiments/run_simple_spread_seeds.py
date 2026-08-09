@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
@@ -50,6 +51,7 @@ def write_summary_csv(
     path: Path,
     seeds: tuple[int, ...],
     results: tuple[TrainingResult, ...],
+    runtimes_seconds: tuple[float, ...],
 ) -> None:
     """Write one summary row per seed."""
 
@@ -69,15 +71,24 @@ def write_summary_csv(
                 "mean_training_return",
                 "mean_evaluation_return",
                 "evaluation_runs",
+                "final_evaluation_episode",
+                "final_evaluation_return",
+                "runtime_seconds",
+                "runtime_minutes",
                 "checkpoint_path",
             ],
         )
 
         writer.writeheader()
 
-        for seed, result in zip(
+        for (
+            seed,
+            result,
+            runtime_seconds,
+        ) in zip(
             seeds,
             results,
+            runtimes_seconds,
             strict=True,
         ):
             writer.writerow(
@@ -90,7 +101,9 @@ def write_summary_csv(
                     "environment_steps": (
                         result.environment_steps
                     ),
-                    "update_count": result.update_count,
+                    "update_count": (
+                        result.update_count
+                    ),
                     "mean_training_return": (
                         result.mean_episode_return
                     ),
@@ -102,6 +115,22 @@ def write_summary_csv(
                     ),
                     "evaluation_runs": (
                         result.evaluation_runs
+                    ),
+                    "final_evaluation_episode": (
+                        result.evaluation_episode_indices[-1]
+                        if result.evaluation_episode_indices
+                        else ""
+                    ),
+                    "final_evaluation_return": (
+                        result.evaluation_returns[-1]
+                        if result.evaluation_returns
+                        else ""
+                    ),
+                    "runtime_seconds": (
+                        runtime_seconds
+                    ),
+                    "runtime_minutes": (
+                        runtime_seconds / 60.0
                     ),
                     "checkpoint_path": (
                         str(result.checkpoint_path)
@@ -148,7 +177,9 @@ def write_training_curves_csv(
             ):
                 writer.writerow(
                     {
-                        "algorithm": result.algorithm,
+                        "algorithm": (
+                            result.algorithm
+                        ),
                         "seed": seed,
                         "episode": episode,
                         "training_return": (
@@ -187,14 +218,19 @@ def write_evaluation_curves_csv(
             results,
             strict=True,
         ):
-            for episode, evaluation_return in zip(
+            for (
+                episode,
+                evaluation_return,
+            ) in zip(
                 result.evaluation_episode_indices,
                 result.evaluation_returns,
                 strict=True,
             ):
                 writer.writerow(
                     {
-                        "algorithm": result.algorithm,
+                        "algorithm": (
+                            result.algorithm
+                        ),
                         "seed": seed,
                         "episode": episode,
                         "evaluation_return": (
@@ -211,7 +247,9 @@ def run_seed_sweep(
 ) -> tuple[TrainingResult, ...]:
     """Run matched training for multiple seeds."""
 
-    normalized_seeds = validate_seeds(seeds)
+    normalized_seeds = validate_seeds(
+        seeds
+    )
 
     algorithm_dir = (
         Path(output_dir)
@@ -224,6 +262,9 @@ def run_seed_sweep(
     )
 
     results: list[TrainingResult] = []
+    runtimes_seconds: list[float] = []
+
+    sweep_start = time.perf_counter()
 
     for seed in normalized_seeds:
         seed_dir = (
@@ -234,7 +275,9 @@ def run_seed_sweep(
         seed_config = replace(
             base_config,
             seed=seed,
-            log_dir=seed_dir / "tensorboard",
+            log_dir=(
+                seed_dir / "tensorboard"
+            ),
             checkpoint_path=(
                 seed_dir / "checkpoint.pt"
             ),
@@ -246,37 +289,94 @@ def run_seed_sweep(
             f"seed {seed} ==="
         )
 
+        run_start = time.perf_counter()
+
         result = train_simple_spread(
             seed_config
         )
 
+        runtime_seconds = (
+            time.perf_counter()
+            - run_start
+        )
+
         results.append(result)
+        runtimes_seconds.append(
+            runtime_seconds
+        )
+
+        final_evaluation_return = (
+            result.evaluation_returns[-1]
+            if result.evaluation_returns
+            else None
+        )
 
         print(
             f"Seed {seed} complete: "
-            f"train={result.mean_episode_return:.4f}, "
-            f"evaluation="
-            f"{result.mean_evaluation_return}"
+            f"train="
+            f"{result.mean_episode_return:.4f}, "
+            f"mean_evaluation="
+            f"{result.mean_evaluation_return}, "
+            f"final_evaluation="
+            f"{final_evaluation_return}, "
+            f"runtime="
+            f"{runtime_seconds / 60.0:.2f} min"
         )
 
-    completed_results = tuple(results)
+    sweep_runtime_seconds = (
+        time.perf_counter()
+        - sweep_start
+    )
+
+    completed_results = tuple(
+        results
+    )
+
+    completed_runtimes = tuple(
+        runtimes_seconds
+    )
 
     write_summary_csv(
         algorithm_dir / "summary.csv",
         normalized_seeds,
         completed_results,
+        completed_runtimes,
     )
 
     write_training_curves_csv(
-        algorithm_dir / "training_curves.csv",
+        algorithm_dir
+        / "training_curves.csv",
         normalized_seeds,
         completed_results,
     )
 
     write_evaluation_curves_csv(
-        algorithm_dir / "evaluation_curves.csv",
+        algorithm_dir
+        / "evaluation_curves.csv",
         normalized_seeds,
         completed_results,
+    )
+
+    mean_runtime_seconds = (
+        sum(completed_runtimes)
+        / len(completed_runtimes)
+    )
+
+    print(
+        f"=== {base_config.algorithm} "
+        f"runtime summary ==="
+    )
+    print(
+        f"Average runtime per seed: "
+        f"{mean_runtime_seconds / 60.0:.2f} min"
+    )
+    print(
+        f"Sum of individual seed runtimes: "
+        f"{sum(completed_runtimes) / 60.0:.2f} min"
+    )
+    print(
+        f"Seed sweep wall-clock runtime: "
+        f"{sweep_runtime_seconds / 60.0:.2f} min"
     )
 
     return completed_results
@@ -294,7 +394,10 @@ def main() -> None:
         "--config",
         type=Path,
         required=True,
-        help="Base YAML training configuration.",
+        help=(
+            "Base YAML training "
+            "configuration."
+        ),
     )
 
     parser.add_argument(
@@ -302,14 +405,20 @@ def main() -> None:
         type=int,
         nargs="+",
         required=True,
-        help="One or more unique non-negative seeds.",
+        help=(
+            "One or more unique "
+            "non-negative seeds."
+        ),
     )
 
     parser.add_argument(
         "--output-dir",
         type=Path,
         required=True,
-        help="Directory for CSVs, logs, and checkpoints.",
+        help=(
+            "Directory for CSVs, logs, "
+            "and checkpoints."
+        ),
     )
 
     arguments = parser.parse_args()
@@ -330,8 +439,12 @@ def main() -> None:
     )
 
     print("=== Seed sweep complete ===")
-    print(f"Algorithm: {config.algorithm}")
-    print(f"Seeds completed: {len(results)}")
+    print(
+        f"Algorithm: {config.algorithm}"
+    )
+    print(
+        f"Seeds completed: {len(results)}"
+    )
     print(
         f"Summary: "
         f"{algorithm_dir / 'summary.csv'}"
