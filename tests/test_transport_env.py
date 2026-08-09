@@ -279,6 +279,37 @@ def test_reset_seed_is_reproducible():
     )
 
 
+def test_different_reset_seeds_produce_different_initializations():
+    config = make_config()
+
+    # Enable random initialization.
+    config["initial_state"]["agent_position_noise"] = 0.1
+    config["initial_state"]["payload_position_noise"] = 0.1
+
+    env = CooperativeTransportEnv(config)
+
+    env.reset(seed=1)
+
+    agent_positions_1 = env.agent_positions.copy()
+    payload_position_1 = env.payload.position.copy()
+
+    env.reset(seed=2)
+
+    agent_positions_2 = env.agent_positions.copy()
+    payload_position_2 = env.payload.position.copy()
+
+    # Different seeds should produce different randomized states.
+    assert not np.allclose(
+        agent_positions_1,
+        agent_positions_2,
+    )
+
+    assert not np.allclose(
+        payload_position_1,
+        payload_position_2,
+    )
+
+
 # ============================================================
 # Observation
 # ============================================================
@@ -1405,4 +1436,71 @@ def test_conflicting_actions_create_different_agent_velocities():
         env.agent_velocities[1, 0]
         < 0
     )
+
+
+
+# ============================================================
+# Smoke Test
+# ============================================================
+
+def test_random_action_smoke_test():
+    """
+    Run 100 random episodes to verify that the environment
+    remains numerically stable.
+
+    The test checks that:
+        - observations remain finite
+        - rewards remain finite
+        - no NaN / Inf appears
+        - every episode terminates or truncates normally
+    """
+
+    env = make_env()
+
+    num_episodes = 100
+
+    for _ in range(num_episodes):
+
+        observations, info = env.reset()
+
+        # Initial observation must be finite.
+        assert np.all(np.isfinite(observations))
+
+        done = False
+        steps = 0
+
+        while not done:
+
+            actions = np.random.uniform(
+                low=-1.0,
+                high=1.0,
+                size=(env.num_agents, env.action_dim),
+            )
+
+            (
+                observations,
+                rewards,
+                terminated,
+                truncated,
+                info,
+            ) = env.step(actions)
+
+            # Observations should never contain NaN or Inf.
+            assert np.all(np.isfinite(observations))
+
+            # Rewards should always be finite.
+            assert np.all(np.isfinite(rewards))
+
+            # Basic numerical safety.
+            assert info["finite_state"]
+
+            done = terminated or truncated
+
+            steps += 1
+
+            # Prevent infinite loops if termination fails.
+            assert steps <= env.max_steps
+
+        # Episode should finish normally.
+        assert done
     
