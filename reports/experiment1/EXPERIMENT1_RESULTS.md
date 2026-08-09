@@ -1,96 +1,180 @@
-﻿# Experiment 1: Simple Spread Validation
+﻿# Experiment 1 — MADDPG vs Independent DDPG on Simple Spread
 
-## Objective
+## Purpose
 
-Validate the MADDPG and independent DDPG implementations on the
-PettingZoo/MPE2 Simple Spread cooperative-navigation task.
+Experiment 1 serves as a correctness and reproducibility benchmark before evaluating the algorithms on the custom cooperative-transport environment.
 
-The comparison used identical environment, network, optimization, evaluation,
-and random-seed settings. The only algorithmic difference was the critic:
+The comparison tests whether centralized-critic training with MADDPG provides an advantage over Independent DDPG under matched execution conditions.
 
-- MADDPG: centralized critic with decentralized actors
-- Independent DDPG: local critic and local actor for each agent
+At execution time, both methods use decentralized actors. The primary difference is the critic information available during training:
 
-## Compute-aware experimental design
+- MADDPG uses centralized critics conditioned on joint multi-agent information.
+- Independent DDPG uses a separate local critic for each agent.
 
-The original plan used five seeds and 2,000 training episodes per seed.
-Initial runtime testing showed that this scale was unnecessarily expensive
-when considering the later transport and robustness experiments.
+Less-negative return indicates better performance.
 
-The final configuration was fixed before collecting the reported results:
+---
 
-- Seeds: 3, 7, and 11
-- Training episodes per seed: 1,000
-- Maximum steps per episode: 25
+## Experimental Setup
+
+Both algorithms used the same training settings:
+
+- Environment: PettingZoo/MPE2 Simple Spread
+- Number of agents: 3
+- Training episodes: 1,000
+- Episode horizon: 25 steps
 - Batch size: 128
+- Replay capacity: 100,000
 - Learning starts: 512 environment steps
-- Optimizer updates: every 2 environment steps
-- Deterministic evaluation: every 100 episodes
+- Update frequency: every 2 environment steps
+- Discount factor: 0.95
+- Target-update coefficient: 0.01
+- Actor learning rate: 0.001
+- Critic learning rate: 0.001
+- Hidden layers: [64, 64]
+- Exploration noise: 0.20 → 0.05
+- Exploration decay: 800 episodes
+- Deterministic evaluation interval: every 100 episodes
 - Evaluation episodes per checkpoint: 5
+- Evaluation uses exploration disabled
 
-The same reduced budget was applied to both learned algorithms.
+Ten unique matched seeds were used for both algorithms:
+
+`3, 7, 11, 19, 23, 29, 31, 37, 41, 47`
+
+This produced:
+
+- 10 MADDPG runs
+- 10 Independent DDPG runs
+- 20 total training runs
+
+---
+
+## Evaluation Performance Across Training
+
+The average evaluation statistics across the ten seed runs were:
+
+| Algorithm | Mean Evaluation Return | Standard Deviation |
+|---|---:|---:|
+| MADDPG | -20.346 | 1.351 |
+| Independent DDPG | -20.631 | 1.756 |
+
+MADDPG therefore had a slightly better mean deterministic evaluation return across the evaluation trajectory and lower across-seed variability.
+
+The deterministic evaluation curve was also aggregated separately at every 100-episode checkpoint using the mean and standard deviation across all ten seeds.
+
+At Episode 1,000:
+
+| Algorithm | Mean Return | Standard Deviation |
+|---|---:|---:|
+| MADDPG | -19.396 | 1.046 |
+| Independent DDPG | -19.963 | 1.879 |
+
+---
+
+## Final Deterministic Evaluation at Episode 1,000
+
+Final deterministic returns for each matched seed were:
+
+| Seed | MADDPG | Independent DDPG | MADDPG - DDPG | Winner |
+|---:|---:|---:|---:|---|
+| 3 | -18.274 | -18.744 | +0.470 | MADDPG |
+| 7 | -18.802 | -20.381 | +1.579 | MADDPG |
+| 11 | -18.604 | -19.582 | +0.978 | MADDPG |
+| 19 | -19.712 | -18.369 | -1.343 | Independent DDPG |
+| 23 | -18.687 | -20.210 | +1.522 | MADDPG |
+| 29 | -18.876 | -20.992 | +2.117 | MADDPG |
+| 31 | -20.623 | -20.489 | -0.134 | Independent DDPG |
+| 37 | -20.360 | -21.468 | +1.108 | MADDPG |
+| 41 | -18.681 | -16.258 | -2.423 | Independent DDPG |
+| 47 | -21.342 | -23.134 | +1.792 | MADDPG |
+
+Matched-seed outcome:
+
+- MADDPG wins: 7
+- Independent DDPG wins: 3
+- Ties: 0
+
+The mean paired difference was:
+
+`MADDPG - Independent DDPG = +0.566`
+
+with a paired-difference standard deviation of:
+
+`1.468`
+
+A positive difference favors MADDPG.
+
+---
 
 ## Runtime
 
-| Algorithm | Runtime |
-|---|---:|
-| MADDPG | 20 minutes 8.9 seconds |
-| Independent DDPG | 18 minutes 49.5 seconds |
-| Total training time | Approximately 39 minutes |
+Runtime was measured separately for every complete seed run.
 
-This confirmed that the revised experiment fit comfortably within the
-project's five-to-six-hour computation limit per experiment.
+### MADDPG
 
-## Performance across all evaluation checkpoints
+- Mean runtime per seed: 9.89 minutes
+- Runtime standard deviation: 1.25 minutes
+- Minimum runtime: 6.57 minutes
+- Maximum runtime: 11.33 minutes
+- Total runtime across 10 seeds: 98.91 minutes
 
-| Algorithm | Mean evaluation return | Standard deviation |
-|---|---:|---:|
-| MADDPG | -20.498 | 1.090 |
-| Independent DDPG | -20.269 | 1.286 |
+### Independent DDPG
 
-These values average all deterministic evaluations from episodes 100 through
-1,000. Independent DDPG obtained a marginally better full-trajectory mean,
-although the difference was small relative to across-seed variability.
+- Mean runtime per seed: 8.21 minutes
+- Runtime standard deviation: 0.70 minutes
+- Minimum runtime: 7.29 minutes
+- Maximum runtime: 9.16 minutes
+- Total runtime across 10 seeds: 82.08 minutes
 
-## Final deterministic evaluation at episode 1,000
+### Entire Experiment
 
-| Seed | MADDPG | Independent DDPG | Better |
-|---:|---:|---:|---|
-| 3 | -18.274 | -18.744 | MADDPG |
-| 7 | -18.802 | -20.381 | MADDPG |
-| 11 | -18.604 | -19.582 | MADDPG |
+- Total training runs: 20
+- Sum of individual seed runtimes: 180.98 minutes
+- Overall measured wall-clock time: 181.15 minutes
+- Overall measured wall-clock time: approximately 3.02 hours
 
-| Algorithm | Final mean return | Final standard deviation |
-|---|---:|---:|
-| MADDPG | -18.560 | 0.267 |
-| Independent DDPG | -19.569 | 0.819 |
+Independent DDPG was therefore faster per seed under this implementation and hardware configuration.
 
-Higher, or less-negative, returns are better. At the final checkpoint,
-MADDPG outperformed independent DDPG on all three matched seeds. Its final
-mean advantage was approximately 1.009 return points, and its final results
-were more consistent across seeds.
+---
 
 ## Interpretation
 
-Both algorithms learned rapidly during the early portion of training and then
-reached similar performance ranges. Independent DDPG had slightly stronger
-average performance over the complete learning trajectory, while MADDPG
-finished with the stronger deterministic policy at episode 1,000.
+Under the matched 10-seed, 1,000-episode compute budget, MADDPG produced the stronger final deterministic policy on average.
 
-The expected directional result was therefore observed at the final
-checkpoint, but the experiment should not be interpreted as definitive proof
-of general MADDPG superiority. Only three seeds were used, the uncertainty
-bands overlapped during much of training, and the training budget was reduced
-to satisfy the available compute constraint.
+MADDPG:
 
-Experiment 1 primarily serves as a correctness and reproducibility gate before
-the custom cooperative-transport experiments.
+- achieved a better final mean return,
+- won 7 of 10 matched-seed comparisons,
+- had lower final across-seed variability,
+- and had a slightly better mean evaluation return across training.
 
-## Preserved artifacts
+Independent DDPG:
+
+- won 3 of 10 matched seeds,
+- occasionally achieved very strong individual-seed results,
+- and trained faster on average.
+
+These results support the expected directional advantage of centralized-critic training for multi-agent coordination in this benchmark. However, performance still varies meaningfully across seeds, so the experiment does not establish universal or statistically proven superiority of MADDPG.
+
+Experiment 1 is therefore treated as a successful implementation and reproducibility gate before moving to the custom cooperative-transport experiments.
+
+---
+
+## Generated Artifacts
+
+The curated Experiment 1 outputs include:
 
 - `comparison_summary.csv`
+- `training_curve_summary.csv`
+- `evaluation_curve_summary.csv`
 - `final_checkpoint_by_seed.csv`
 - `final_checkpoint_summary.csv`
+- `paired_final_comparison.csv`
+- `paired_final_summary.csv`
+- `overall_wall_clock.txt`
 - `training_curves.png`
 - `evaluation_curves.png`
 - `final_checkpoint_by_seed.png`
+
+The earlier three-seed results are superseded by this official ten-seed experiment.

@@ -43,10 +43,14 @@ def test_seed_sweep_writes_expected_outputs(
         exploration_decay_episodes=2,
         evaluation_interval=1,
         evaluation_episodes=1,
-        log_dir=tmp_path / "unused-logs",
+        log_dir=(
+            tmp_path / "unused-logs"
+        ),
     )
 
-    output_dir = tmp_path / "results"
+    output_dir = (
+        tmp_path / "results"
+    )
 
     results = run_seed_sweep(
         base_config=config,
@@ -63,14 +67,17 @@ def test_seed_sweep_writes_expected_outputs(
     summary_path = (
         algorithm_dir / "summary.csv"
     )
+
     training_path = (
         algorithm_dir
         / "training_curves.csv"
     )
+
     evaluation_path = (
         algorithm_dir
         / "evaluation_curves.csv"
     )
+
     checkpoint_path = (
         algorithm_dir
         / "seed_3"
@@ -107,7 +114,69 @@ def test_seed_sweep_writes_expected_outputs(
         )
 
     assert len(summary_rows) == 1
-    assert summary_rows[0]["seed"] == "3"
+
+    summary_row = summary_rows[0]
+
+    assert summary_row["seed"] == "3"
+
+    assert (
+        summary_row[
+            "final_evaluation_episode"
+        ]
+        == "2"
+    )
+
+    assert (
+        summary_row[
+            "final_evaluation_return"
+        ]
+        != ""
+    )
+
+    assert (
+        summary_row[
+            "mean_evaluation_return"
+        ]
+        != ""
+    )
+
+    runtime_seconds = float(
+        summary_row[
+            "runtime_seconds"
+        ]
+    )
+
+    runtime_minutes = float(
+        summary_row[
+            "runtime_minutes"
+        ]
+    )
+
+    assert runtime_seconds > 0.0
+
+    assert runtime_minutes == pytest.approx(
+        runtime_seconds / 60.0
+    )
 
     assert len(training_rows) == 2
     assert len(evaluation_rows) == 2
+
+    assert (
+        evaluation_rows[-1]["episode"]
+        == "2"
+    )
+
+    assert (
+        float(
+            summary_row[
+                "final_evaluation_return"
+            ]
+        )
+        == pytest.approx(
+            float(
+                evaluation_rows[-1][
+                    "evaluation_return"
+                ]
+            )
+        )
+    )
