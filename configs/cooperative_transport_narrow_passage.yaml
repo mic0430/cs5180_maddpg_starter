@@ -1,0 +1,343 @@
+env:
+  name: cooperative_transport
+  seed: 3
+
+  # Number of cooperative agents.
+  # Must match the number of attachment offsets and initial agent states.
+  num_agents: 2
+
+  # Physics simulation step.
+  dt: 0.05
+
+  # Maximum number of environment steps in one episode.
+  max_steps: 300
+
+
+world:
+  # 2-D bounded workspace.
+  x_min: -2.0
+  x_max: 2.0
+  y_min: -2.0
+  y_max: 2.0
+
+  # Simple first-version boundary handling.
+  # "clip" = project positions back inside the world.
+  boundary_mode: clip
+
+
+agent:
+  mass: 1.0
+
+  # Actor outputs actions in [-1, 1]^2.
+  # Physical control force = action * max_control_force.
+  max_control_force: 1.0
+
+  # Physical speed limit.
+  max_speed: 2.0
+
+  linear_damping: 0.20
+
+  # Maximum allowed distance from the agent
+  # to its assigned attachment.
+  #
+  # ||p_agent - p_attachment|| <= max_attachment_distance
+  max_attachment_distance: 0.35
+
+
+payload:
+  # Supported shapes:
+  #
+  # point
+  # circle
+  # segment
+  # rectangle
+  shape: rectangle
+
+  # Shape-dependent dimensions:
+  #
+  # point      -> []
+  # circle     -> [radius]
+  # segment    -> [length]
+  # rectangle  -> [width, height]
+  dimensions: [0.60, 0.30]
+
+  mass: 3.0
+
+  # Linear-motion parameters.
+  linear_damping: 0.30
+  max_speed: 2.0
+
+  # Rotational parameters.
+  #
+  # Point payload does not physically rotate.
+  # For shaped payloads, moment of inertia is derived
+  # automatically from shape, dimensions, and mass.
+  angular_damping: 0.20
+  max_angular_speed: 4.0
+
+  # Attachment offsets are defined in payload-local coordinates.
+  #
+  # For point payload:
+  #   p_attachment = p_payload + offset
+  #
+  # For rotating shaped payload:
+  #   p_attachment =
+  #       p_payload + R(theta_payload) @ offset
+  #
+  # Number of offsets must equal env.num_agents.
+  attachments:
+    offsets:
+      - [-0.70, 0.00]
+      - [ 0.70, 0.00]
+
+    # For non-point payloads, require the entire region that
+    # an agent can reach around its attachment to remain
+    # outside the payload geometry.
+    enforce_clearance: true
+
+    # Validation requirement:
+    #
+    # distance(attachment, payload_geometry)
+    # >
+    # agent.max_attachment_distance + clearance_margin
+    clearance_margin: 0.02
+
+
+coupling:
+  # Spring-damper connection between each agent
+  # and its assigned attachment.
+
+  spring_constant: 8.0
+
+  spring_damping: 0.50
+
+  # Agent-to-attachment distance at which the spring
+  # generates zero elastic force.
+  rest_length: 0.20
+
+  # Must satisfy:
+  #
+  # 0 <= rest_length < agent.max_attachment_distance
+
+  # Maximum magnitude of force produced by one coupling.
+  # Used primarily for numerical stability.
+  max_force: 5.0
+
+  # Small value used when normalizing near-zero vectors.
+  epsilon: 1.0e-8
+
+
+target:
+  # Target is represented identically for all payload types:
+  # a circular goal region.
+
+  position: [1.50, 0.00]
+
+  radius: 0.20
+
+  # Current success criterion:
+  # payload CENTER enters the target region.
+  #
+  # No final orientation requirement.
+  success_mode: center_inside
+
+  # Reserved for a future extension where the entire
+  # shaped payload must lie inside the goal region.
+  require_full_payload_inside: false
+
+
+obstacles:
+  enabled: true
+
+  items:
+    - shape: rectangle
+      position: [0.50, 0.725]
+      dimensions: [0.20, 1.00]
+
+    - shape: rectangle
+      position: [0.50, -0.725]
+      dimensions: [0.20, 1.00]
+
+  # Geometry uses the same shape/dimensions convention
+  # as payload geometry.
+  #
+  # Example:
+  #
+  # items:
+  #   - shape: rectangle
+  #     position: [0.50, 0.725]
+  #     dimensions: [0.20, 1.00]
+  #
+  #   - shape: rectangle
+  #     position: [0.50, -0.725]
+  #     dimensions: [0.20, 1.00]
+
+  # Collision behavior:
+  #
+  # Point payload:
+  #   payload center is treated as a point.
+  #
+  # Shaped payload:
+  #   the full rotated payload geometry participates
+  #   in collision checking.
+  #
+  # Therefore a shaped payload cannot pass through a gap
+  # that is geometrically too small.
+  #
+  # "reject_motion":
+  # if the candidate payload pose intersects an obstacle,
+  # reject that payload movement instead of simulating
+  # an elastic collision.
+  collision_mode: reject_motion
+
+
+initial_state:
+  payload_position: [0.0, 0.0]
+  payload_velocity: [0.0, 0.0]
+
+  # Used by shaped payloads.
+  # Point payload keeps orientation and angular velocity at 0.
+  payload_orientation: 0.0
+  payload_angular_velocity: 0.0
+
+  # Initial agent positions should satisfy the
+  # max_attachment_distance constraint.
+  agent_positions:
+    - [-0.90, 0.00]
+    - [ 0.90, 0.00]
+
+  agent_velocities:
+    - [0.0, 0.0]
+    - [0.0, 0.0]
+
+  # Small reset randomization prevents the agents
+  # from memorizing one exact initial trajectory.
+  payload_position_noise: 0.03
+  agent_position_noise: 0.03
+
+  payload_velocity_noise: 0.00
+  agent_velocity_noise: 0.00
+
+  # Ignored for point payload.
+  orientation_noise: 0.00
+  angular_velocity_noise: 0.00
+
+
+action:
+  # Continuous 2-D control.
+  #
+  # a_i = [a_x, a_y]
+  dimension: 2
+
+  low: -1.0
+  high: 1.0
+
+
+observation:
+  # MADDPG actors and independent-DDPG actors use
+  # exactly the same local observations.
+
+  # Agent's own velocity.
+  include_agent_velocity: true
+
+  # attachment_position - agent_position
+  include_attachment_relative_position: true
+
+  # payload_velocity - agent_velocity
+  include_payload_relative_velocity: true
+
+  # target_position - payload_position
+  include_goal_relative_to_payload: true
+
+  # Local spring/coupling force acting on the agent.
+  include_coupling_force: true
+
+  # Included for all payload types so observation dimensions
+  # remain consistent.
+  #
+  # Point payload returns 0.0 for these values.
+  include_payload_orientation: true
+  include_payload_angular_velocity: true
+
+
+reward:
+  # Cooperative task:
+  # all agents receive the same team reward.
+  shared: true
+
+  # Progress reward based on payload-center distance
+  # to the target:
+  #
+  # r_progress =
+  #   progress_weight * (distance_t - distance_t+1)
+  progress_weight: 1.0
+
+  # One-time reward when payload center enters
+  # the target region.
+  success_bonus: 10.0
+
+  # Small control-effort regularization:
+  #
+  # - action_penalty_weight * sum_i ||a_i||^2
+  action_penalty_weight: 0.001
+
+  # Intentionally excluded from the first-version reward:
+  #
+  # force-disagreement reward
+  # orientation reward
+  # angular-velocity reward
+  # spring-stretch reward
+  # obstacle-clearance reward
+  #
+  # These are initially treated as evaluation metrics
+  # instead of explicitly telling agents how to cooperate.
+
+
+termination:
+  # Episode ends normally when the payload reaches the target.
+  terminate_on_success: true
+
+  # Episode ends if NaN or Inf appears in the physical state.
+  terminate_on_nonfinite_state: true
+
+  # Under reject_motion collision handling,
+  # obstacle contact itself does not terminate the episode.
+  terminate_on_collision: false
+
+
+numerical_safety:
+  # Enable or disable clipping using the physical limits
+  # defined in the agent and payload sections.
+
+  clip_agent_speed: true
+  clip_payload_speed: true
+  clip_angular_speed: true
+
+  # Immediately reject invalid numerical states.
+  reject_nonfinite_values: true
+
+
+evaluation:
+  # General task metrics.
+  track_success: true
+  track_episode_return: true
+  track_completion_time: true
+
+  # Control metrics.
+  track_control_effort: true
+
+  # Coupling / cooperation metrics.
+  track_coupling_forces: true
+  track_force_disagreement: true
+
+  # Task-progress metric.
+  track_payload_distance_to_goal: true
+
+  # Rotation-related metrics.
+  #
+  # For point payload these remain zero / inactive.
+  track_payload_orientation: true
+  track_payload_angular_velocity: true
+
+  # Environment-interaction metric.
+  track_obstacle_collisions: true
