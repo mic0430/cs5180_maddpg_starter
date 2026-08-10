@@ -3,6 +3,10 @@ from __future__ import annotations
 import argparse
 import csv
 import time
+
+from tensorboard.backend.event_processing.event_accumulator import (
+    EventAccumulator,
+)
 from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
@@ -148,6 +152,187 @@ def write_summary_csv(
                 )
 
             writer.writerow(row)
+
+
+def write_training_metrics_csv(
+    path: Path,
+    algorithm_dir: Path,
+    seeds: tuple[int, ...],
+) -> None:
+    """Export per-episode TensorBoard training metrics."""
+
+    tags = {
+        "training_return": "train/episode_return",
+        "steps": "train/episode_steps",
+        "success": "train/success",
+        "exploration_noise_std": (
+            "train/exploration_noise_std"
+        ),
+        "collision_count": "train/collision_count",
+        "mean_force_disagreement": (
+            "train/mean_force_disagreement"
+        ),
+        "control_effort": "train/control_effort",
+        "final_abs_orientation": (
+            "train/final_abs_orientation"
+        ),
+    }
+
+    fields = [
+        "algorithm",
+        "seed",
+        "episode",
+        *tags.keys(),
+    ]
+
+    with path.open(
+        "w",
+        newline="",
+        encoding="utf-8",
+    ) as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=fields,
+        )
+        writer.writeheader()
+
+        for seed in seeds:
+            log_dir = (
+                algorithm_dir
+                / f"seed_{seed}"
+                / "tensorboard"
+            )
+
+            accumulator = EventAccumulator(
+                str(log_dir)
+            )
+            accumulator.Reload()
+
+            available_tags = set(
+                accumulator.Tags().get(
+                    "scalars",
+                    [],
+                )
+            )
+
+            missing_tags = [
+                tag
+                for tag in tags.values()
+                if tag not in available_tags
+            ]
+
+            if missing_tags:
+                raise RuntimeError(
+                    f"Missing TensorBoard tags for "
+                    f"seed {seed}: {missing_tags}"
+                )
+
+            values_by_field = {}
+
+            for field, tag in tags.items():
+                events = accumulator.Scalars(tag)
+
+                values_by_field[field] = {
+                    int(event.step): float(event.value)
+                    for event in events
+                }
+
+            episode_sets = [
+                set(values.keys())
+                for values in values_by_field.values()
+            ]
+
+            reference = episode_sets[0]
+
+            if any(
+                episodes != reference
+                for episodes in episode_sets[1:]
+            ):
+                raise RuntimeError(
+                    f"Training metric episode steps "
+                    f"do not match for seed {seed}."
+                )
+
+            for episode in sorted(reference):
+                row = {
+                    "algorithm": (
+                        algorithm_dir.name
+                    ),
+                    "seed": seed,
+                    "episode": episode,
+                }
+
+                for field in tags:
+                    row[field] = (
+                        values_by_field[field][episode]
+                    )
+
+                writer.writerow(row)
+
+
+def write_timing_summary_csv(
+    path: Path,
+    algorithm: str,
+    seed_count: int,
+    runtimes_seconds: tuple[float, ...],
+    sweep_runtime_seconds: float,
+) -> None:
+    """Write aggregate timing statistics."""
+
+    sum_runtime_seconds = sum(
+        runtimes_seconds
+    )
+
+    average_runtime_seconds = (
+        sum_runtime_seconds
+        / seed_count
+    )
+
+    with path.open(
+        "w",
+        newline="",
+        encoding="utf-8",
+    ) as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "algorithm",
+                "seed_count",
+                "average_runtime_per_seed_seconds",
+                "average_runtime_per_seed_minutes",
+                "sum_individual_seed_runtimes_seconds",
+                "sum_individual_seed_runtimes_minutes",
+                "seed_sweep_wall_clock_seconds",
+                "seed_sweep_wall_clock_minutes",
+            ],
+        )
+
+        writer.writeheader()
+
+        writer.writerow(
+            {
+                "algorithm": algorithm,
+                "seed_count": seed_count,
+                "average_runtime_per_seed_seconds": (
+                    average_runtime_seconds
+                ),
+                "average_runtime_per_seed_minutes": (
+                    average_runtime_seconds / 60.0
+                ),
+                "sum_individual_seed_runtimes_seconds": (
+                    sum_runtime_seconds
+                ),
+                "sum_individual_seed_runtimes_minutes": (
+                    sum_runtime_seconds / 60.0
+                ),
+                "seed_sweep_wall_clock_seconds": (
+                    sweep_runtime_seconds
+                ),
+                "seed_sweep_wall_clock_minutes": (
+                    sweep_runtime_seconds / 60.0
+                ),
+            }
+        )
 
 
 def write_training_curves_csv(
@@ -381,6 +566,12 @@ def run_seed_sweep(
         completed_results,
     )
 
+    write_training_metrics_csv(
+        algorithm_dir / "training_metrics.csv",
+        algorithm_dir,
+        normalized_seeds,
+    )
+
     write_evaluation_curves_csv(
         algorithm_dir / "evaluation_curves.csv",
         normalized_seeds,
@@ -390,6 +581,14 @@ def run_seed_sweep(
     sweep_runtime = (
         time.perf_counter()
         - sweep_start
+    )
+
+    write_timing_summary_csv(
+        algorithm_dir / "timing_summary.csv",
+        base_config.algorithm,
+        len(normalized_seeds),
+        completed_runtimes,
+        sweep_runtime,
     )
 
     print()
