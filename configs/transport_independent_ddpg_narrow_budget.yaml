@@ -1,0 +1,27 @@
+algorithm: independent_ddpg
+project:
+  seed: 3
+  device: auto
+environment:
+  config: configs/cooperative_transport_narrow_passage.yaml
+training:
+  episodes: 500
+  batch_size: 128
+  replay_capacity: 100000
+  learning_starts: 512
+  update_every: 2
+  gamma: 0.95
+  tau: 0.01
+  actor_lr: 0.001
+  critic_lr: 0.001
+  hidden_sizes:
+  - 64
+  - 64
+  exploration_noise_std: 0.2
+  exploration_noise_final: 0.05
+  exploration_decay_episodes: 400
+  evaluation_interval: 50
+  evaluation_episodes: 10
+logging:
+  log_dir: runs/transport_narrow_500_independent_ddpg
+  checkpoint_path: checkpoints/transport_narrow_500_independent_ddpg.pt
