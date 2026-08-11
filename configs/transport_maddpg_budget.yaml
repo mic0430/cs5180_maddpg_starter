@@ -1,0 +1,32 @@
+﻿algorithm: maddpg
+
+project:
+  seed: 3
+  device: auto
+
+environment:
+  config: configs/cooperative_transport.yaml
+
+training:
+  episodes: 300
+  batch_size: 128
+  replay_capacity: 100000
+  learning_starts: 512
+  update_every: 2
+
+  gamma: 0.95
+  tau: 0.01
+  actor_lr: 0.001
+  critic_lr: 0.001
+  hidden_sizes: [64, 64]
+
+  exploration_noise_std: 0.20
+  exploration_noise_final: 0.05
+  exploration_decay_episodes: 240
+
+  evaluation_interval: 50
+  evaluation_episodes: 10
+
+logging:
+  log_dir: runs/transport_maddpg_budget
+  checkpoint_path: checkpoints/transport_maddpg_budget.pt
