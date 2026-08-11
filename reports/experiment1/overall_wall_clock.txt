@@ -1,0 +1,7 @@
+﻿Experiment 1 Official 10-Seed Run
+Start: 08/09/2026 13:54:09
+End: 08/09/2026 16:55:18
+Total runs planned: 20
+Total wall-clock seconds: 10868.9987306
+Total wall-clock minutes: 181.149978843333
+Total wall-clock hours: 3.01916631405556
