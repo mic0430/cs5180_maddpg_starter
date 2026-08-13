@@ -1,4 +1,4 @@
-﻿# Experiment 1 — MADDPG vs Independent DDPG on Simple Spread
+# Experiment 1 — MADDPG vs Independent DDPG on Simple Spread
 
 ## Purpose
 
@@ -107,6 +107,25 @@ A positive difference favors MADDPG.
 
 ---
 
+## Statistical Significance
+
+Because both algorithms were evaluated using the same 10 random seeds, the final deterministic returns form matched pairs.
+
+Two two-sided paired statistical tests were applied to the Episode 1,000 returns:
+
+| Test | Statistic | p-value |
+|---|---:|---:|
+| Paired t-test | 1.2203 | 0.253369 |
+| Wilcoxon signed-rank | 16.0000 | 0.275391 |
+
+The mean paired difference was `+0.5664`, with a 95% confidence interval of `[-0.4836, 1.6165]`.
+
+At `alpha = 0.05`, neither test found a statistically significant difference between MADDPG and Independent DDPG. The confidence interval also includes zero.
+
+Therefore, although MADDPG achieved a slightly higher final mean return and won 7 of 10 matched-seed comparisons, Experiment 1 does not establish a clear performance winner between the two algorithms.
+
+---
+
 ## Runtime
 
 Runtime was measured separately for every complete seed run.
@@ -140,7 +159,7 @@ Independent DDPG was therefore faster per seed under this implementation and har
 
 ## Interpretation
 
-Under the matched 10-seed, 1,000-episode compute budget, MADDPG produced the stronger final deterministic policy on average.
+Under the matched 10-seed, 1,000-episode compute budget, MADDPG achieved a slightly higher final deterministic mean return than Independent DDPG.
 
 MADDPG:
 
@@ -155,7 +174,7 @@ Independent DDPG:
 - occasionally achieved very strong individual-seed results,
 - and trained faster on average.
 
-These results support the expected directional advantage of centralized-critic training for multi-agent coordination in this benchmark. However, performance still varies meaningfully across seeds, so the experiment does not establish universal or statistically proven superiority of MADDPG.
+The descriptive results slightly favor MADDPG, but the paired t-test and Wilcoxon signed-rank test were both non-significant at `alpha = 0.05`. Therefore, we do not conclude that MADDPG clearly outperformed Independent DDPG on Simple Spread under this training budget.
 
 Experiment 1 is therefore treated as a successful implementation and reproducibility gate before moving to the custom cooperative-transport experiments.
 
@@ -172,6 +191,7 @@ The curated Experiment 1 outputs include:
 - `final_checkpoint_summary.csv`
 - `paired_final_comparison.csv`
 - `paired_final_summary.csv`
+- `exp1_statistical_tests.csv`
 - `overall_wall_clock.txt`
 - `training_curves.png`
 - `evaluation_curves.png`
